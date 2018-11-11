@@ -1089,9 +1089,13 @@ QemuCocoaView *cocoaView;
 {
     COCOA_DEBUG("QemuCocoaAppController: startEmulationWithArgc\n");
 
-    int status;
-    status = qemu_main(argc, argv, *_NSGetEnviron());
-    exit(status);
+    dispatch_queue_t qemu_runner = dispatch_queue_create("qemu-runner", DISPATCH_QUEUE_SERIAL);
+
+    dispatch_async(qemu_runner, ^{
+        int status;
+        status = qemu_main(argc, argv, *_NSGetEnviron());
+        exit(status);
+    });
 }
 
 /* We abstract the method called by the Enter Fullscreen menu item
