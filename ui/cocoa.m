@@ -38,6 +38,8 @@
 #include <Carbon/Carbon.h>
 #include "qom/cpu.h"
 
+#import "DDInvocationGrabber.h"
+
 #ifndef MAC_OS_X_VERSION_10_5
 #define MAC_OS_X_VERSION_10_5 1050
 #endif
@@ -314,6 +316,8 @@ static void handleAnyDeviceErrors(Error * err)
 - (float) cdy;
 - (QEMUScreen) gscreen;
 - (void) raiseAllKeys;
+- (void) refresh;
+- (id) invokeOnMainThread;
 @end
 
 QemuCocoaView *cocoaView;
@@ -343,6 +347,14 @@ QemuCocoaView *cocoaView;
         CGDataProviderRelease(dataProviderRef);
 
     [super dealloc];
+}
+
+- (id) invokeOnMainThread
+{
+    DDInvocationGrabber * grabber = [DDInvocationGrabber invocationGrabber];
+    [grabber setForwardInvokesOnMainThread:YES];
+    [grabber setWaitUntilDone:YES];
+    return [grabber prepareWithInvocationTarget:self];
 }
 
 - (BOOL) isOpaque
@@ -507,6 +519,28 @@ QemuCocoaView *cocoaView;
     if (isResize) {
         [normalWindow center];
     }
+}
+
+- (void) refresh
+{
+    if (qemu_input_is_absolute()) {
+        if (![self isAbsoluteEnabled]) {
+            if ([self isMouseGrabbed]) {
+                [self ungrabMouse];
+            }
+        }
+        [self setAbsoluteEnabled:YES];
+    }
+
+    NSDate *distantPast = [NSDate distantPast];
+    NSEvent *event;
+    do {
+        event = [NSApp nextEventMatchingMask:NSEventMaskAny untilDate:distantPast
+                        inMode: NSDefaultRunLoopMode dequeue:YES];
+        if (event != nil) {
+            [self handleEvent:event];
+        }
+    } while(event != nil);
 }
 
 - (void) toggleFullScreen:(id)sender
@@ -1566,7 +1600,7 @@ static void cocoa_update(DisplayChangeListener *dcl,
             w * [cocoaView cdx],
             h * [cocoaView cdy]);
     }
-    [cocoaView setNeedsDisplayInRect:rect];
+    [[cocoaView invokeOnMainThread] setNeedsDisplayInRect:rect];
 
     [pool release];
 }
@@ -1577,7 +1611,7 @@ static void cocoa_switch(DisplayChangeListener *dcl,
     NSAutoreleasePool * pool = [[NSAutoreleasePool alloc] init];
 
     COCOA_DEBUG("qemu_cocoa: cocoa_switch\n");
-    [cocoaView switchSurface:surface];
+    [[cocoaView invokeOnMainThread] switchSurface:surface];
     [pool release];
 }
 
@@ -1588,25 +1622,8 @@ static void cocoa_refresh(DisplayChangeListener *dcl)
     COCOA_DEBUG("qemu_cocoa: cocoa_refresh\n");
     graphic_hw_update(NULL);
 
-    if (qemu_input_is_absolute()) {
-        if (![cocoaView isAbsoluteEnabled]) {
-            if ([cocoaView isMouseGrabbed]) {
-                [cocoaView ungrabMouse];
-            }
-        }
-        [cocoaView setAbsoluteEnabled:YES];
-    }
+    [[cocoaView invokeOnMainThread] refresh];
 
-    NSDate *distantPast;
-    NSEvent *event;
-    distantPast = [NSDate distantPast];
-    do {
-        event = [NSApp nextEventMatchingMask:NSEventMaskAny untilDate:distantPast
-                        inMode: NSDefaultRunLoopMode dequeue:YES];
-        if (event != nil) {
-            [cocoaView handleEvent:event];
-        }
-    } while(event != nil);
     [pool release];
 }
 
